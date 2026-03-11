@@ -24,41 +24,45 @@ static string BuildLoginJson(const string& username, const string& password, con
   yyjson_mut_obj_add_str(doc, root, "username", username.c_str());
   yyjson_mut_obj_add_str(doc, root, "password", password.c_str());
 
+  // claims_doc must outlive yyjson_mut_write since key strings are not copied
+  yyjson_doc* claims_doc = nullptr;
+
   if (!claims.empty()) {
     // Parse claims as JSON and nest under "claims" key
-    auto claims_doc = yyjson_read(claims.c_str(), claims.size(), 0);
+    claims_doc = yyjson_read(claims.c_str(), claims.size(), 0);
     if (claims_doc) {
       auto claims_root = yyjson_doc_get_root(claims_doc);
       if (yyjson_is_obj(claims_root)) {
-        // Create a mutable claims object
+        // Create a mutable claims object and copy all string fields generically
+        // Note: yyjson_mut_obj_add_strcpy copies values but NOT keys — keys remain
+        // as pointers into claims_doc, so claims_doc must stay alive until after
+        // yyjson_mut_write serializes the document.
         auto claims_obj = yyjson_mut_obj(doc);
 
-        // Extract known claim fields: database, schema, table
-        // Use yyjson_mut_obj_add_strcpy to copy strings into the mutable doc
-        auto db_val = yyjson_obj_get(claims_root, "database");
-        if (yyjson_is_str(db_val)) {
-          yyjson_mut_obj_add_strcpy(doc, claims_obj, "database", yyjson_get_str(db_val));
-        }
-        auto schema_val = yyjson_obj_get(claims_root, "schema");
-        if (yyjson_is_str(schema_val)) {
-          yyjson_mut_obj_add_strcpy(doc, claims_obj, "schema", yyjson_get_str(schema_val));
-        }
-        auto table_val = yyjson_obj_get(claims_root, "table");
-        if (yyjson_is_str(table_val)) {
-          yyjson_mut_obj_add_strcpy(doc, claims_obj, "table", yyjson_get_str(table_val));
+        size_t idx, max;
+        yyjson_val *key, *val;
+        yyjson_obj_foreach(claims_root, idx, max, key, val) {
+          if (yyjson_is_str(key) && yyjson_is_str(val)) {
+            yyjson_mut_obj_add_strcpy(doc, claims_obj, yyjson_get_str(key), yyjson_get_str(val));
+          }
         }
 
         // Add claims object to root
         yyjson_mut_obj_add_val(doc, root, "claims", claims_obj);
       }
-      yyjson_doc_free(claims_doc);
     }
   }
 
+  // Serialize BEFORE freeing claims_doc, since key pointers reference its memory
   auto json_str = yyjson_mut_write(doc, 0, nullptr);
   string result(json_str);
   free(json_str);
   yyjson_mut_doc_free(doc);
+
+  // Now safe to free claims_doc
+  if (claims_doc) {
+    yyjson_doc_free(claims_doc);
+  }
 
   return result;
 }

@@ -1,0 +1,50 @@
+# name: test/sql/dd_login.test_slow
+# description: Integration test for dd_login with dazzleduck server
+# group: [sql]
+#
+# This test requires a running dazzleduck server on localhost:8081
+# Run with: ./build/release/test/unittest --test-dir . "*dd_login*"
+
+require dazzleduck
+
+# Test dd_login without claims - should return a non-empty JWT token
+query I
+SELECT length(dd_login('http://localhost:8081', 'admin', 'admin')) > 0;
+----
+true
+
+# Test dd_login with empty claims string - should return a non-empty JWT token
+query I
+SELECT length(dd_login('http://localhost:8081', 'admin', 'admin', '')) > 0;
+----
+true
+
+# Test dd_login with database claim only
+query I
+SELECT length(dd_login('http://localhost:8081', 'admin', 'admin', '{"database":"demo_catalog"}')) > 0;
+----
+true
+
+# Test dd_login with database, schema, table claims
+query I
+SELECT length(dd_login('http://localhost:8081', 'admin', 'admin', '{"database":"demo_catalog","schema":"main","table":"transaction"}')) > 0;
+----
+true
+
+# Test dd_login with filter claim included
+query I
+SELECT length(dd_login('http://localhost:8081', 'admin', 'admin', '{"database":"demo_catalog","schema":"main","table":"transaction","filter":"tenant_id = 1"}')) > 0;
+----
+true
+
+# Test dd_login with filter claim for tenant 2
+query I
+SELECT length(dd_login('http://localhost:8081', 'admin', 'admin', '{"database":"demo_catalog","schema":"main","table":"transaction","filter":"tenant_id = 2"}')) > 0;
+----
+true
+
+# Test dd_login token starts with 'ey' (JWT format)
+query I
+SELECT left(dd_login('http://localhost:8081', 'admin', 'admin', '{"database":"demo_catalog","schema":"main","table":"transaction","filter":"tenant_id = 1"}'), 2) = 'ey';
+----
+true
